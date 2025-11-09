@@ -5,154 +5,340 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  release:
+    types: [ created ]
+
+env:
+  APP_NAME: kiru
+  APP_VERSION: 1.0.${{ github.run_number }}
+
+permissions:
+  contents: write
 
 jobs:
   build-deb:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
-    - uses: actions/checkout@v3
-    - name: Cache apt packages
-      uses: actions/cache@v3
+    - uses: actions/checkout@v4
+    
+    - name: Cache dependencies
+      uses: actions/cache@v4
       with:
-        path: /var/cache/apt
-        key: ${{ runner.os }}-apt-deb-${{ hashFiles('**/build.yml') }}
+        path: |
+          /var/cache/apt/archives
+          ~/.cache
+        key: ${{ runner.os }}-deb-deps-${{ hashFiles('.github/workflows/build.yml') }}
         restore-keys: |
-          ${{ runner.os }}-apt-deb-
+          ${{ runner.os }}-deb-deps-
+    
     - name: Install dependencies
       run: |
-        sudo apt update
-        sudo apt install -y gjs libgtk-3-dev libgirepository1.0-dev libsoup2.4-dev cairo-dev pango-dev gdk-pixbuf-dev glib-dev gnome-screenshot curl xclip shared-mime-info
-    - name: Create package
+        sudo apt-get update
+        sudo apt-get install -y \
+          gjs \
+          libgtk-3-dev \
+          libgirepository1.0-dev \
+          libsoup2.4-dev \
+          cairo-dev \
+          pango1.0-dev \
+          libgdk-pixbuf2.0-dev \
+          libglib2.0-dev \
+          gnome-screenshot \
+          curl \
+          xclip \
+          shared-mime-info \
+          dpkg-dev
+    
+    - name: Validate main.js exists
       run: |
-        mkdir -p kiru/usr/bin
-        mkdir -p kiru/usr/share/applications
-        mkdir -p kiru/usr/share/icons/hicolor/512x512/apps
-        cp main.js kiru/usr/bin/kiru
-        chmod +x kiru/usr/bin/kiru
+        if [ ! -f "main.js" ]; then
+          echo "Error: main.js not found!"
+          exit 1
+        fi
+    
+    - name: Create package structure
+      run: |
+        mkdir -p ${{ env.APP_NAME }}/DEBIAN
+        mkdir -p ${{ env.APP_NAME }}/usr/bin
+        mkdir -p ${{ env.APP_NAME }}/usr/share/applications
+        mkdir -p ${{ env.APP_NAME }}/usr/share/icons/hicolor/512x512/apps
+        mkdir -p ${{ env.APP_NAME }}/usr/share/doc/${{ env.APP_NAME }}
+        
+        # Copy application
+        cp main.js ${{ env.APP_NAME }}/usr/bin/${{ env.APP_NAME }}
+        chmod +x ${{ env.APP_NAME }}/usr/bin/${{ env.APP_NAME }}
+        
+        # Create DEBIAN/control file
+        cat > ${{ env.APP_NAME }}/DEBIAN/control << EOF
+        Package: ${{ env.APP_NAME }}
+        Version: ${{ env.APP_VERSION }}
+        Section: utils
+        Priority: optional
+        Architecture: amd64
+        Depends: gjs, libgtk-3-0, libgirepository-1.0-1, libsoup2.4-1, libcairo2, libpango-1.0-0, libgdk-pixbuf2.0-0, libglib2.0-0, gnome-screenshot, curl, xclip, shared-mime-info
+        Maintainer: Your Name <your.email@example.com>
+        Description: Screenshot editor application
+         A screenshot editor built with GJS and GTK.
+        EOF
+        
         # Create desktop file
-        cat > kiru/usr/share/applications/kiru.desktop << EOF
+        cat > ${{ env.APP_NAME }}/usr/share/applications/${{ env.APP_NAME }}.desktop << EOF
         [Desktop Entry]
         Name=Kiru
-        Exec=kiru
-        Icon=kiru
+        Comment=Screenshot editor
+        Exec=${{ env.APP_NAME }}
+        Icon=${{ env.APP_NAME }}
         Type=Application
-        Categories=Utility;
+        Categories=Utility;Graphics;
+        Terminal=false
         EOF
-        # Copy icon (placeholder)
-        touch kiru/usr/share/icons/hicolor/512x512/apps/kiru.png
-        # Build deb
-        sudo apt install -y dpkg-dev
-        dpkg-deb --build kiru
-        mv kiru.deb kiru_${{ github.run_number }}_amd64.deb
-    - uses: actions/upload-artifact@v3
+        
+        # Create copyright file
+        cat > ${{ env.APP_NAME }}/usr/share/doc/${{ env.APP_NAME }}/copyright << EOF
+        Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+        Upstream-Name: ${{ env.APP_NAME }}
+        Source: https://github.com/${{ github.repository }}
+        
+        Files: *
+        Copyright: $(date +%Y) ${{ github.repository_owner }}
+        License: MIT
+        EOF
+        
+        # Copy or create placeholder icon
+        if [ -f "icon.png" ]; then
+          cp icon.png ${{ env.APP_NAME }}/usr/share/icons/hicolor/512x512/apps/${{ env.APP_NAME }}.png
+        else
+          # Create a minimal PNG placeholder
+          convert -size 512x512 xc:blue ${{ env.APP_NAME }}/usr/share/icons/hicolor/512x512/apps/${{ env.APP_NAME }}.png 2>/dev/null || \
+          touch ${{ env.APP_NAME }}/usr/share/icons/hicolor/512x512/apps/${{ env.APP_NAME }}.png
+        fi
+    
+    - name: Build DEB package
+      run: |
+        dpkg-deb --build ${{ env.APP_NAME }}
+        mv ${{ env.APP_NAME }}.deb ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
+        
+        # Verify package
+        dpkg-deb --info ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
+        dpkg-deb --contents ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
+    
+    - name: Upload DEB artifact
+      uses: actions/upload-artifact@v4
       with:
-        name: kiru-deb
-        path: kiru_*.deb
+        name: ${{ env.APP_NAME }}-deb
+        path: ${{ env.APP_NAME }}_*.deb
+        if-no-files-found: error
 
   build-rpm:
-    runs-on: ubuntu-latest
-    container: fedora:latest
+    runs-on: ubuntu-22.04
+    container: 
+      image: fedora:39
     steps:
-    - uses: actions/checkout@v3
-    - name: Cache dnf packages
-      uses: actions/cache@v3
-      with:
-        path: /var/cache/dnf
-        key: ${{ runner.os }}-dnf-rpm-${{ hashFiles('**/build.yml') }}
-        restore-keys: |
-          ${{ runner.os }}-dnf-rpm-
+    - uses: actions/checkout@v4
+    
     - name: Install dependencies
       run: |
         dnf update -y
-        dnf install -y gjs gtk3-devel gobject-introspection-devel libsoup-devel cairo-devel pango-devel gdk-pixbuf2-devel glib-devel gnome-screenshot curl xclip shared-mime-info rpm-build
-    - name: Create package
+        dnf install -y \
+          gjs \
+          gtk3-devel \
+          gobject-introspection-devel \
+          libsoup-devel \
+          cairo-devel \
+          pango-devel \
+          gdk-pixbuf2-devel \
+          glib2-devel \
+          gnome-screenshot \
+          curl \
+          xclip \
+          shared-mime-info \
+          rpm-build \
+          rpmdevtools
+    
+    - name: Setup RPM build environment
       run: |
-        mkdir -p ~/rpmbuild/SOURCES/kiru/usr/bin
-        mkdir -p ~/rpmbuild/SOURCES/kiru/usr/share/applications
-        mkdir -p ~/rpmbuild/SOURCES/kiru/usr/share/icons/hicolor/512x512/apps
-        cp main.js ~/rpmbuild/SOURCES/kiru/usr/bin/kiru
-        chmod +x ~/rpmbuild/SOURCES/kiru/usr/bin/kiru
+        rpmdev-setuptree
+        mkdir -p ~/rpmbuild/BUILD
+        mkdir -p ~/rpmbuild/BUILDROOT
+    
+    - name: Create package structure
+      run: |
+        mkdir -p ~/rpmbuild/BUILDROOT/${{ env.APP_NAME }}-${{ env.APP_VERSION }}-1.x86_64/usr/bin
+        mkdir -p ~/rpmbuild/BUILDROOT/${{ env.APP_NAME }}-${{ env.APP_VERSION }}-1.x86_64/usr/share/applications
+        mkdir -p ~/rpmbuild/BUILDROOT/${{ env.APP_NAME }}-${{ env.APP_VERSION }}-1.x86_64/usr/share/icons/hicolor/512x512/apps
+        
+        cp main.js ~/rpmbuild/BUILDROOT/${{ env.APP_NAME }}-${{ env.APP_VERSION }}-1.x86_64/usr/bin/${{ env.APP_NAME }}
+        chmod +x ~/rpmbuild/BUILDROOT/${{ env.APP_NAME }}-${{ env.APP_VERSION }}-1.x86_64/usr/bin/${{ env.APP_NAME }}
+        
         # Desktop file
-        cat > ~/rpmbuild/SOURCES/kiru/usr/share/applications/kiru.desktop << EOF
+        cat > ~/rpmbuild/BUILDROOT/${{ env.APP_NAME }}-${{ env.APP_VERSION }}-1.x86_64/usr/share/applications/${{ env.APP_NAME }}.desktop << EOF
         [Desktop Entry]
         Name=Kiru
-        Exec=kiru
-        Icon=kiru
+        Comment=Screenshot editor
+        Exec=${{ env.APP_NAME }}
+        Icon=${{ env.APP_NAME }}
         Type=Application
-        Categories=Utility;
+        Categories=Utility;Graphics;
+        Terminal=false
         EOF
-        touch ~/rpmbuild/SOURCES/kiru/usr/share/icons/hicolor/512x512/apps/kiru.png
-        # Spec file
-        cat > kiru.spec << EOF
-        Name: kiru
-        Version: 1.0
-        Release: ${{ github.run_number }}
-        Summary: Screenshot editor
-        License: MIT
+        
+        # Placeholder icon
+        touch ~/rpmbuild/BUILDROOT/${{ env.APP_NAME }}-${{ env.APP_VERSION }}-1.x86_64/usr/share/icons/hicolor/512x512/apps/${{ env.APP_NAME }}.png
+    
+    - name: Create RPM spec file
+      run: |
+        cat > ~/rpmbuild/SPECS/${{ env.APP_NAME }}.spec << EOF
+        Name:           ${{ env.APP_NAME }}
+        Version:        ${{ env.APP_VERSION }}
+        Release:        1%{?dist}
+        Summary:        Screenshot editor application
+        License:        MIT
+        URL:            https://github.com/${{ github.repository }}
+        BuildArch:      x86_64
+        
+        Requires:       gjs gtk3 gobject-introspection libsoup cairo pango gdk-pixbuf2 glib2 gnome-screenshot curl xclip shared-mime-info
+        
         %description
-        Screenshot editor app
+        A screenshot editor built with GJS and GTK.
+        
+        %prep
+        # No prep needed
+        
+        %build
+        # No build needed
+        
+        %install
+        # Files already in BUILDROOT
+        
         %files
-        /usr/bin/kiru
-        /usr/share/applications/kiru.desktop
-        /usr/share/icons/hicolor/512x512/apps/kiru.png
+        %attr(0755,root,root) /usr/bin/${{ env.APP_NAME }}
+        /usr/share/applications/${{ env.APP_NAME }}.desktop
+        /usr/share/icons/hicolor/512x512/apps/${{ env.APP_NAME }}.png
+        
+        %changelog
+        * $(date "+%%a %%b %%d %%Y") GitHub Actions <noreply@github.com> - ${{ env.APP_VERSION }}-1
+        - Automated build from commit ${{ github.sha }}
         EOF
-        rpmbuild -bb kiru.spec
-        cp ~/rpmbuild/RPMS/x86_64/kiru-*.rpm .
-    - uses: actions/upload-artifact@v3
+    
+    - name: Build RPM package
+      run: |
+        rpmbuild -bb ~/rpmbuild/SPECS/${{ env.APP_NAME }}.spec
+        cp ~/rpmbuild/RPMS/x86_64/${{ env.APP_NAME }}-*.rpm .
+        
+        # Verify package
+        rpm -qip ${{ env.APP_NAME }}-*.rpm
+        rpm -qlp ${{ env.APP_NAME }}-*.rpm
+    
+    - name: Upload RPM artifact
+      uses: actions/upload-artifact@v4
       with:
-        name: kiru-rpm
-        path: kiru-*.rpm
+        name: ${{ env.APP_NAME }}-rpm
+        path: ${{ env.APP_NAME }}-*.rpm
+        if-no-files-found: error
 
   build-appimage:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04  # Use older Ubuntu for better compatibility
     steps:
-    - uses: actions/checkout@v3
-    - name: Cache pip
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-appimage-${{ hashFiles('**/build.yml') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-appimage-
-    - name: Install appimage-builder
+    - uses: actions/checkout@v4
+    
+    - name: Install dependencies
       run: |
-        sudo apt update
-        sudo apt install -y python3-pip
-        pip3 install appimage-builder
-    - name: Create AppImage recipe
+        sudo apt-get update
+        sudo apt-get install -y \
+          gjs \
+          libgtk-3-0 \
+          libgirepository-1.0-1 \
+          libsoup2.4-1 \
+          libcairo2 \
+          libpango-1.0-0 \
+          libgdk-pixbuf2.0-0 \
+          libglib2.0-0 \
+          gnome-screenshot \
+          curl \
+          xclip \
+          shared-mime-info \
+          file \
+          desktop-file-utils \
+          wget
+    
+    - name: Download appimagetool
       run: |
-        cat > AppImageBuilder.yml << EOF
-        version: 1
-        AppDir:
-          path: ./AppDir
-          app_info:
-            id: kiru
-            name: Kiru
-            icon: kiru
-            version: latest
-            exec: usr/bin/kiru
-            exec_args: \$@
-          files:
-            include:
-              - main.js
-            exclude:
-              - .git
-          runtime:
-            env:
-              PATH: \$APPDIR/usr/bin:\$PATH
-          test:
-            fedora-30:
-            debian-stable:
-            ubuntu-18.04:
-            centos-7:
-        EOF
+        wget -O appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+        chmod +x appimagetool
+    
+    - name: Create AppDir structure
+      run: |
         mkdir -p AppDir/usr/bin
-        cp main.js AppDir/usr/bin/kiru
-        chmod +x AppDir/usr/bin/kiru
+        mkdir -p AppDir/usr/lib
+        mkdir -p AppDir/usr/share/applications
+        mkdir -p AppDir/usr/share/icons/hicolor/512x512/apps
+        
+        # Copy application
+        cp main.js AppDir/usr/bin/${{ env.APP_NAME }}
+        chmod +x AppDir/usr/bin/${{ env.APP_NAME }}
+        
+        # Create desktop file
+        cat > AppDir/usr/share/applications/${{ env.APP_NAME }}.desktop << EOF
+        [Desktop Entry]
+        Name=Kiru
+        Comment=Screenshot editor
+        Exec=${{ env.APP_NAME }}
+        Icon=${{ env.APP_NAME }}
+        Type=Application
+        Categories=Utility;Graphics;
+        Terminal=false
+        EOF
+        
+        # Create AppRun script
+        cat > AppDir/AppRun << 'EOF'
+        #!/bin/bash
+        SELF=$(readlink -f "$0")
+        HERE=${SELF%/*}
+        export PATH="${HERE}/usr/bin:${PATH}"
+        export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+        export GI_TYPELIB_PATH="${HERE}/usr/lib/girepository-1.0:${GI_TYPELIB_PATH}"
+        exec "${HERE}/usr/bin/${{ env.APP_NAME }}" "$@"
+        EOF
+        chmod +x AppDir/AppRun
+        
+        # Copy or create icon
+        if [ -f "icon.png" ]; then
+          cp icon.png AppDir/usr/share/icons/hicolor/512x512/apps/${{ env.APP_NAME }}.png
+          cp icon.png AppDir/${{ env.APP_NAME }}.png
+        else
+          touch AppDir/usr/share/icons/hicolor/512x512/apps/${{ env.APP_NAME }}.png
+          touch AppDir/${{ env.APP_NAME }}.png
+        fi
+        
+        # Symlink for AppImage requirement
+        ln -sf usr/share/applications/${{ env.APP_NAME }}.desktop AppDir/${{ env.APP_NAME }}.desktop
+    
     - name: Build AppImage
       run: |
-        appimage-builder --recipe AppImageBuilder.yml
-    - uses: actions/upload-artifact@v3
+        ./appimagetool --comp gzip AppDir ${{ env.APP_NAME }}-${{ env.APP_VERSION }}-x86_64.AppImage
+        chmod +x ${{ env.APP_NAME }}-${{ env.APP_VERSION }}-x86_64.AppImage
+    
+    - name: Upload AppImage artifact
+      uses: actions/upload-artifact@v4
       with:
-        name: kiru-appimage
-        path: *.AppImage
+        name: ${{ env.APP_NAME }}-appimage
+        path: ${{ env.APP_NAME }}-*.AppImage
+        if-no-files-found: error
+
+  release:
+    needs: [build-deb, build-rpm, build-appimage]
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'release'
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      
+    - name: Upload to release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          ${{ env.APP_NAME }}-deb/*.deb
+          ${{ env.APP_NAME }}-rpm/*.rpm
+          ${{ env.APP_NAME }}-appimage/*.AppImage
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
