@@ -31,6 +31,8 @@ echo "### Universal (AppImage)" >> release_notes.md
     needs: [build-deb, build-rpm, build-appimage]
     runs-on: ubuntu-22.04
     if: github.event_name == 'pull_request'
+    env:
+      APP_VERSION: 1.0.${{ github.run_number }}
     permissions:
       pull-requests: write
       contents: read
@@ -84,19 +86,18 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  release:
-    types: [ created ]
 
 permissions:
   contents: write
 
 env:
   APP_NAME: kiru
-  APP_VERSION: 1.0.${{ github.run_number }}
 
 jobs:
   build-deb:
     runs-on: ubuntu-22.04
+    env:
+      APP_VERSION: 1.0.${{ github.run_number }}
     steps:
     - uses: actions/checkout@v4
     
@@ -212,6 +213,8 @@ jobs:
     runs-on: ubuntu-22.04
     container: 
       image: fedora:39
+    env:
+      APP_VERSION: 1.0.${{ github.run_number }}
     steps:
     - uses: actions/checkout@v4
     
@@ -319,6 +322,8 @@ jobs:
 
   build-appimage:
     runs-on: ubuntu-20.04  # Use older Ubuntu for better compatibility
+    env:
+      APP_VERSION: 1.0.${{ github.run_number }}
     steps:
     - uses: actions/checkout@v4
     
@@ -410,6 +415,8 @@ jobs:
     needs: [build-deb, build-rpm, build-appimage]
     runs-on: ubuntu-22.04
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    env:
+      APP_VERSION: 1.0.${{ github.run_number }}
     permissions:
       contents: write
     steps:
