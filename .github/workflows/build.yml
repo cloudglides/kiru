@@ -1,7 +1,7 @@
 echo "### Universal (AppImage)" >> release_notes.md
         echo "\`\`\`bash" >> release_notes.md
-        echo "chmod +x kiru-*.AppImage" >> release_notes.md
-        echo "./kiru-*.AppImage" >> release_notes.md
+        echo "chmod +x kiru-${{ env.APP_VERSION }}-x86_64.AppImage" >> release_notes.md
+        echo "./kiru-${{ env.APP_VERSION }}-x86_64.AppImage" >> release_notes.md
         echo "\`\`\`" >> release_notes.md
         echo "" >> release_notes.md
         echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${LAST_TAG}...v${{ env.APP_VERSION }}" >> release_notes.md
@@ -87,12 +87,12 @@ on:
   release:
     types: [ created ]
 
+permissions:
+  contents: write
+
 env:
   APP_NAME: kiru
   APP_VERSION: 1.0.${{ github.run_number }}
-
-permissions:
-  contents: write
 
 jobs:
   build-deb:
@@ -301,17 +301,20 @@ jobs:
         export GITHUB_RUN_NUMBER="${{ github.run_number }}"
         export GITHUB_REPOSITORY="${{ github.repository }}"
         rpmbuild -bb ~/rpmbuild/SPECS/${{ env.APP_NAME }}.spec
-        cp ~/rpmbuild/RPMS/x86_64/${{ env.APP_NAME }}-*.rpm .
+        
+        # Rename RPM to include version in filename
+        RPM_FILE=$(ls ~/rpmbuild/RPMS/x86_64/${{ env.APP_NAME }}-*.rpm)
+        cp "$RPM_FILE" ${{ env.APP_NAME }}-${{ env.APP_VERSION }}-x86_64.rpm
         
         # Verify package
-        rpm -qip ${{ env.APP_NAME }}-*.rpm
-        rpm -qlp ${{ env.APP_NAME }}-*.rpm
+        rpm -qip ${{ env.APP_NAME }}-${{ env.APP_VERSION }}-x86_64.rpm
+        rpm -qlp ${{ env.APP_NAME }}-${{ env.APP_VERSION }}-x86_64.rpm
     
     - name: Upload RPM artifact
       uses: actions/upload-artifact@v4
       with:
         name: ${{ env.APP_NAME }}-rpm
-        path: ${{ env.APP_NAME }}-*.rpm
+        path: ${{ env.APP_NAME }}-${{ env.APP_VERSION }}-x86_64.rpm
         if-no-files-found: error
 
   build-appimage:
@@ -400,7 +403,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: ${{ env.APP_NAME }}-appimage
-        path: ${{ env.APP_NAME }}-*.AppImage
+        path: ${{ env.APP_NAME }}-${{ env.APP_VERSION }}-x86_64.AppImage
         if-no-files-found: error
 
   create-release:
@@ -433,13 +436,13 @@ jobs:
         echo "" >> release_notes.md
         echo "### Debian/Ubuntu (.deb)" >> release_notes.md
         echo "\`\`\`bash" >> release_notes.md
-        echo "sudo dpkg -i kiru_${{ env.APP_VERSION }}_amd64.deb" >> release_notes.md
+        echo "sudo dpkg -i kiru-${{ env.APP_VERSION }}-amd64.deb" >> release_notes.md
         echo "sudo apt-get install -f  # Fix dependencies" >> release_notes.md
         echo "\`\`\`" >> release_notes.md
         echo "" >> release_notes.md
         echo "### Fedora/RHEL (.rpm)" >> release_notes.md
         echo "\`\`\`bash" >> release_notes.md
-        echo "sudo dnf install kiru-*.rpm" >> release_notes.md
+        echo "sudo dnf install kiru-${{ env.APP_VERSION }}-x86_64.rpm" >> release_notes.md
         echo "\`\`\`" >> release_notes.md
         echo "" >> release_notes.md
         echo "### Universal
