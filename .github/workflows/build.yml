@@ -1,4 +1,83 @@
-name: Build Packages
+echo "### Universal (AppImage)" >> release_notes.md
+        echo "\`\`\`bash" >> release_notes.md
+        echo "chmod +x kiru-*.AppImage" >> release_notes.md
+        echo "./kiru-*.AppImage" >> release_notes.md
+        echo "\`\`\`" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${LAST_TAG}...v${{ env.APP_VERSION }}" >> release_notes.md
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ env.APP_VERSION }}
+        name: Release v${{ env.APP_VERSION }}
+        body_path: release_notes.md
+        draft: false
+        prerelease: false
+        files: |
+          ${{ env.APP_NAME }}-deb/*.deb
+          ${{ env.APP_NAME }}-rpm/*.rpm
+          ${{ env.APP_NAME }}-appimage/*.AppImage
+        generate_release_notes: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Comment on commits
+      run: |
+        echo "✅ Release v${{ env.APP_VERSION }} created successfully!"
+        echo "📦 Packages available at: https://github.com/${{ github.repository }}/releases/tag/v${{ env.APP_VERSION }}"
+
+  preview-release:
+    needs: [build-deb, build-rpm, build-appimage]
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+    
+    - name: Generate checksums
+      run: |
+        cd ${{ env.APP_NAME }}-deb && sha256sum *.deb > ../checksums.txt && cd ..
+        cd ${{ env.APP_NAME }}-rpm && sha256sum *.rpm >> ../checksums.txt && cd ..
+        cd ${{ env.APP_NAME }}-appimage && sha256sum *.AppImage >> ../checksums.txt && cd ..
+    
+    - name: Comment on PR
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const checksums = fs.readFileSync('checksums.txt', 'utf8');
+          
+          const comment = `## 📦 Release Preview
+          
+          Packages built successfully for this PR!
+          
+          ### Available Packages
+          - ✅ Debian/Ubuntu (.deb)
+          - ✅ Fedora/RHEL (.rpm)
+          - ✅ Universal (AppImage)
+          
+          ### Checksums (SHA256)
+          \`\`\`
+          ${checksums}
+          \`\`\`
+          
+          ### Download Artifacts
+          You can download the build artifacts from the [Actions run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+          
+          When this PR is merged to main, a release \`v${{ env.APP_VERSION }}\` will be automatically created.`;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });name: Build Packages
 
 on:
   push:
@@ -116,17 +195,17 @@ jobs:
     - name: Build DEB package
       run: |
         dpkg-deb --build ${{ env.APP_NAME }}
-        mv ${{ env.APP_NAME }}.deb ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
+        mv ${{ env.APP_NAME }}.deb ${{ env.APP_NAME }}-${{ env.APP_VERSION }}-amd64.deb
         
         # Verify package
-        dpkg-deb --info ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
-        dpkg-deb --contents ${{ env.APP_NAME }}_${{ env.APP_VERSION }}_amd64.deb
+        dpkg-deb --info ${{ env.APP_NAME }}-${{ env.APP_VERSION }}-amd64.deb
+        dpkg-deb --contents ${{ env.APP_NAME }}-${{ env.APP_VERSION }}-amd64.deb
     
     - name: Upload DEB artifact
       uses: actions/upload-artifact@v4
       with:
         name: ${{ env.APP_NAME }}-deb
-        path: ${{ env.APP_NAME }}_*.deb
+        path: ${{ env.APP_NAME }}-*.deb
         if-no-files-found: error
 
   build-rpm:
@@ -158,20 +237,11 @@ jobs:
     - name: Setup RPM build environment
       run: |
         rpmdev-setuptree
-    
-    - name: Create package structure
-      run: |
-        # Use absolute path that matches the spec file expectation
-        BUILD_ROOT="$HOME/rpmbuild/BUILDROOT/${{ env.APP_NAME }}-${{ env.APP_VERSION }}-1.fc39.x86_64"
-        mkdir -p "$BUILD_ROOT/usr/bin"
-        mkdir -p "$BUILD_ROOT/usr/share/applications"
-        mkdir -p "$BUILD_ROOT/usr/share/icons/hicolor/512x512/apps"
+        # Copy source files to SOURCES directory
+        cp main.js ~/rpmbuild/SOURCES/
         
-        cp main.js "$BUILD_ROOT/usr/bin/${{ env.APP_NAME }}"
-        chmod +x "$BUILD_ROOT/usr/bin/${{ env.APP_NAME }}"
-        
-        # Desktop file
-        cat > "$BUILD_ROOT/usr/share/applications/${{ env.APP_NAME }}.desktop" << EOF
+        # Create desktop file in SOURCES
+        cat > ~/rpmbuild/SOURCES/${{ env.APP_NAME }}.desktop << EOF
         [Desktop Entry]
         Name=Kiru
         Comment=Screenshot editor
@@ -182,19 +252,22 @@ jobs:
         Terminal=false
         EOF
         
-        # Placeholder icon
-        touch "$BUILD_ROOT/usr/share/icons/hicolor/512x512/apps/${{ env.APP_NAME }}.png"
+        # Create placeholder icon
+        touch ~/rpmbuild/SOURCES/${{ env.APP_NAME }}.png
     
     - name: Create RPM spec file
       run: |
         cat > ~/rpmbuild/SPECS/${{ env.APP_NAME }}.spec << 'SPECEOF'
         Name:           kiru
-        Version:        %{getenv:APP_VERSION}
+        Version:        1.0.%{getenv:GITHUB_RUN_NUMBER}
         Release:        1%{?dist}
         Summary:        Screenshot editor application
         License:        MIT
         URL:            https://github.com/%{getenv:GITHUB_REPOSITORY}
         BuildArch:      x86_64
+        Source0:        main.js
+        Source1:        kiru.desktop
+        Source2:        kiru.png
         
         Requires:       gjs gtk3 gobject-introspection libsoup cairo pango gdk-pixbuf2 glib2 gnome-screenshot curl xclip shared-mime-info
         
@@ -208,7 +281,13 @@ jobs:
         # No build needed
         
         %install
-        # Files already in BUILDROOT
+        mkdir -p %{buildroot}/usr/bin
+        mkdir -p %{buildroot}/usr/share/applications
+        mkdir -p %{buildroot}/usr/share/icons/hicolor/512x512/apps
+        
+        install -m 0755 %{SOURCE0} %{buildroot}/usr/bin/kiru
+        install -m 0644 %{SOURCE1} %{buildroot}/usr/share/applications/kiru.desktop
+        install -m 0644 %{SOURCE2} %{buildroot}/usr/share/icons/hicolor/512x512/apps/kiru.png
         
         %files
         %attr(0755,root,root) /usr/bin/kiru
@@ -216,14 +295,10 @@ jobs:
         /usr/share/icons/hicolor/512x512/apps/kiru.png
         
         SPECEOF
-        
-        # Set environment variables for rpmbuild
-        export APP_VERSION="${{ env.APP_VERSION }}"
-        export GITHUB_REPOSITORY="${{ github.repository }}"
     
     - name: Build RPM package
       run: |
-        export APP_VERSION="${{ env.APP_VERSION }}"
+        export GITHUB_RUN_NUMBER="${{ github.run_number }}"
         export GITHUB_REPOSITORY="${{ github.repository }}"
         rpmbuild -bb ~/rpmbuild/SPECS/${{ env.APP_NAME }}.spec
         cp ~/rpmbuild/RPMS/x86_64/${{ env.APP_NAME }}-*.rpm .
@@ -328,20 +403,43 @@ jobs:
         path: ${{ env.APP_NAME }}-*.AppImage
         if-no-files-found: error
 
-  release:
+  create-release:
     needs: [build-deb, build-rpm, build-appimage]
     runs-on: ubuntu-22.04
-    if: github.event_name == 'release'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
     steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
     - name: Download all artifacts
       uses: actions/download-artifact@v4
-      
-    - name: Upload to release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          ${{ env.APP_NAME }}-deb/*.deb
-          ${{ env.APP_NAME }}-rpm/*.rpm
-          ${{ env.APP_NAME }}-appimage/*.AppImage
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Generate release notes
+      id: release_notes
+      run: |
+        # Get the last tag, or use initial commit if no tags exist
+        LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)
+        
+        # Generate changelog
+        echo "## What's Changed" > release_notes.md
+        echo "" >> release_notes.md
+        git log ${LAST_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges >> release_notes.md
+        echo "" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "## Package Downloads" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "### Debian/Ubuntu (.deb)" >> release_notes.md
+        echo "\`\`\`bash" >> release_notes.md
+        echo "sudo dpkg -i kiru_${{ env.APP_VERSION }}_amd64.deb" >> release_notes.md
+        echo "sudo apt-get install -f  # Fix dependencies" >> release_notes.md
+        echo "\`\`\`" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "### Fedora/RHEL (.rpm)" >> release_notes.md
+        echo "\`\`\`bash" >> release_notes.md
+        echo "sudo dnf install kiru-*.rpm" >> release_notes.md
+        echo "\`\`\`" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "### Universal
