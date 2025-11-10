@@ -277,7 +277,9 @@ class MainApp {
     constructor() {
         this.config_dir = GLib.get_home_dir() + '/.kiru';
         this.config_file = this.config_dir + '/conf.json';
+        this.current_version = '1.0.0'; // Update this with actual version
         this.load_config();
+        this.check_for_updates_on_startup();
         this.init_ui();
         this.init_monitor();
     }
@@ -363,7 +365,7 @@ class MainApp {
 
     init_ui() {
         this.window = new Gtk.Window({title: "Kiru - Monitoring Screenshots"});
-        this.window.set_default_size(400, 300);
+        this.window.set_default_size(400, 350);
 
         let box = new Gtk.Box({orientation: Gtk.Orientation.VERTICAL, spacing: 10});
         box.set_margin_top(20);
@@ -374,6 +376,11 @@ class MainApp {
         let label = new Gtk.Label({label: "Monitoring ~/Pictures/Screenshots for new screenshots.\nTake a screenshot with gnome-screenshot to edit."});
         label.set_line_wrap(true);
         box.pack_start(label, false, false, 0);
+
+        // Update button
+        let update_btn = new Gtk.Button({label: "Check for Updates"});
+        update_btn.connect("clicked", () => this.check_for_updates());
+        box.pack_start(update_btn, false, false, 0);
 
         // Settings
         let settings_label = new Gtk.Label({label: "Settings:"});
