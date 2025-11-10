@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Kiru
+Comment=Screenshot editor
+Exec=gjs %k/main.js
+Icon=%k/assets/icon.png
+Type=Application
+Categories=Utility;Graphics;
+Terminal=false
+Version=1.0.0
