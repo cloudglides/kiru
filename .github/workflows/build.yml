@@ -93,7 +93,7 @@ jobs:
         Exec=${{ env.APP_NAME }}
         Icon=${{ env.APP_NAME }}
         Type=Application
-        Categories=Utility;Graphics;
+        Categories=Graphics;
         Terminal=false
         EOF
 
@@ -174,7 +174,7 @@ jobs:
         Exec=${{ env.APP_NAME }}
         Icon=${{ env.APP_NAME }}
         Type=Application
-        Categories=Utility;Graphics;
+        Categories=Graphics;
         Terminal=false
         EOF
         touch ~/rpmbuild/SOURCES/${{ env.APP_NAME }}.png
@@ -266,6 +266,7 @@ jobs:
           imagemagick \
           file \
           desktop-file-utils \
+          appstream-util \
           wget
 
     - name: Download appimagetool
@@ -294,7 +295,7 @@ jobs:
         Exec=${{ env.APP_NAME }}
         Icon=${{ env.APP_NAME }}
         Type=Application
-        Categories=Utility;Graphics;
+        Categories=Graphics;
         Terminal=false
         EOF
 
@@ -320,7 +321,7 @@ jobs:
 
     - name: Build AppImage
       run: |
-        ./appimagetool --comp gzip AppDir ${{ env.APP_NAME }}-${{ env.APP_VERSION }}-x86_64.AppImage
+        ARCH=x86_64 ./appimagetool --comp gzip AppDir ${{ env.APP_NAME }}-${{ env.APP_VERSION }}-x86_64.AppImage
         chmod +x ${{ env.APP_NAME }}-${{ env.APP_VERSION }}-x86_64.AppImage
 
     - name: Validate AppImage (extraction only, no FUSE)
