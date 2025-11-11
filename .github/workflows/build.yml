@@ -49,16 +49,12 @@ jobs:
           imagemagick \
           dpkg-dev
 
-    - name: Validate main.js exists
-      run: |
-        if [ ! -f "main.js" ]; then
-          echo "Error: main.js not found!"
-          exit 1
-        fi
-        if [ ! -f "VERSION" ]; then
-          echo "Error: VERSION not found!"
-          exit 1
-        fi
+    - name: Validate src/main.js exists
+    run: |
+    if [ ! -f "src/main.js" ]; then
+    echo "Error: src/main.js not found!"
+    exit 1
+    fi
 
     - name: Create package structure
       run: |
