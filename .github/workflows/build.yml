@@ -353,7 +353,7 @@ jobs:
     - name: Generate release notes
       id: release_notes
       run: |
-        LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)
+        LAST_TAG=$(git tag --sort=-committerdate | sed -n '2p' || git rev-list --max-parents=0 HEAD)
         echo "## What's Changed" > release_notes.md
         echo "" >> release_notes.md
         git log ${LAST_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges >> release_notes.md
